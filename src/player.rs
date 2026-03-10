@@ -1,12 +1,14 @@
 use rodio::Source;
 use std::fs::File;
 use std::path::Path;
+use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 
 #[derive(Debug)]
 pub enum PlayerCommand {
-    PlayTest(),
+    PlayTest,
+    Stop,
     PlayMedia(String, Duration),
 }
 
@@ -24,20 +26,23 @@ impl Player {
 
     pub async fn run(
         &mut self,
-        sink_option: Option<&rodio::Player>,
+        sink: Arc<rodio::Player>,
         mut cmd_rx: UnboundedReceiver<PlayerCommand>,
         evt_tx: UnboundedSender<PlayerEvent>,
     ) {
         loop {
             let mut last_player_pos = Duration::from_secs(0);
-            if let Some(sink) = sink_option {
                 tokio::select! {
 
 
                     Some(cmd) = cmd_rx.recv() => {
                         println!("============== cmd received ==============");
                         match cmd {
-                            PlayerCommand::PlayTest() => {
+                            PlayerCommand::Stop => {
+                                sink.stop();
+                                sink.clear()
+                            },
+                            PlayerCommand::PlayTest => {
                                 sink.clear();
                                 let waves = vec![230f32, 270f32, 330f32, 270f32, 230f32];
                                 for w in waves {
@@ -53,6 +58,8 @@ impl Player {
                                 let path = Path::new(s.as_str());
                                 let file_result = File::open(path);
 
+                                println!("file result: {:?}", file_result);
+
                                 if let Ok(file) = file_result {
                                     let decoder_result = rodio::Decoder::try_from(file);
                                     if let Ok(decoder) = decoder_result{
@@ -61,13 +68,14 @@ impl Player {
                                         if position > Duration::from_secs(0) {
                                             let _ = sink.try_seek(position);
                                         }
+                                        sink.play();
                                     }
                                 }
                             }
                         }
                     }
 
-                    _ = tokio::time::sleep(Duration::from_millis(500)) => {
+                    _ = tokio::time::sleep(Duration::from_millis(1000)) => {
                         let pos = sink.get_pos();
 
                         if pos != last_player_pos {
@@ -77,7 +85,7 @@ impl Player {
 
                     }
                 }
-            }
+
         }
     }
 
