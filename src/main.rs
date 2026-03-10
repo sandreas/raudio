@@ -42,7 +42,13 @@ fn main() {
     }.expect("failed to find output device");
 
     let mut config: StreamConfig = device.default_output_config().unwrap().into();
-    config.buffer_size = BufferSize::Fixed(2048);
+    // test must be played first!! otherwise the playback is fine
+    // After "test" it plays wav too slow (1/2 speed), and m4b too fast (2x speed)
+    // possible side effect: the bigger the buffer, the slower the wav and faster m4b playback
+
+    // config.buffer_size = BufferSize::Fixed(1024);
+    // config.buffer_size = BufferSize::Fixed(128*1024);
+    config.buffer_size = BufferSize::Fixed(512);
 
     let stream = DeviceSinkBuilder::from_device(device)
         .expect("failed to create sink builder")
@@ -63,6 +69,7 @@ fn main() {
 
     let mut quit = false;
     while !quit {
+        println!("Enter command: t=test, s=stop, f=file, q=quit");
         let mut buffer = String::new();
         io::stdin().read_line(&mut buffer).unwrap();
 
