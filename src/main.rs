@@ -2,12 +2,13 @@ use crate::player::{Player, PlayerCommand, PlayerEvent};
 use clap::Parser;
 use rodio::cpal::traits::HostTrait;
 use rodio::cpal::{BufferSize, StreamConfig};
-use rodio::{cpal, DeviceSinkBuilder, DeviceTrait};
-use std::sync::Arc;
-use std::{io, thread};
+use rodio::{cpal, DeviceSinkBuilder, DeviceTrait, Source};
+use std::fs::File;
 use std::path::Path;
+use std::sync::Arc;
+use std::thread::sleep;
 use std::time::Duration;
-use crossterm::event::{read, Event, KeyCode};
+use std::{io, thread};
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 mod player;
@@ -21,16 +22,15 @@ struct Opt {
 
     #[arg(short, long, default_value = "")]
     file: Option<String>,
+
+    #[arg(short, long)]
+    quick: bool,
 }
 
 
 fn main() {
     let opt: Opt = Opt::parse();
 
-    let (_player_cmd_tx, player_cmd_rx) = tokio::sync::mpsc::unbounded_channel::<PlayerCommand>();
-    // let player_cmd_tx_shared = Arc::new(player_cmd_tx.clone());
-
-    let (player_evt_tx, mut _player_evt_rx) = mpsc::unbounded_channel::<PlayerEvent>();
 
     let host = cpal::default_host();
 
@@ -56,15 +56,62 @@ fn main() {
         .open_stream()
         .expect("failed to open stream");
 
-    let rodio_player = rodio::Player::connect_new(stream.mixer());
 
-    start_tokio_background_tasks(rodio_player, player_cmd_rx, player_evt_tx);
+
+    let rodio_player = rodio::Player::connect_new(stream.mixer());
 
     let file = if let Some(f) = opt.file.clone() && Path::exists(Path::new(&f)) {
         f
     } else {
         "".to_string()
     };
+
+
+    if opt.quick {
+        let sink = rodio::Player::connect_new(stream.mixer());
+        sink.clear();
+        let waves = vec![230f32, 270f32, 330f32, 270f32, 230f32];
+        for w in waves {
+            let source = rodio::source::SineWave::new(w).amplify(0.1);
+            sink.append(source);
+            sink.play();
+            sleep(Duration::from_millis(200));
+            sink.stop();
+            sink.clear();
+        }
+
+        let path = Path::new(file.as_str());
+        let file_result = File::open(path);
+
+        // the follwing println! needs to be commented out / in for a "compile change" which pretty reliable results in
+        // audio stream error: A backend-specific error has occurred: `alsa::poll()` returned POLLERR
+        // workflow:
+        // - comment out this line, then cargo run ...
+        // - comment in the line, then cargo run ... => stream error should happen after a few seconds
+        println!("file result: {:?}", file_result);
+
+        if let Ok(file) = file_result {
+            let decoder_result = rodio::Decoder::try_from(file);
+            if let Ok(decoder) = decoder_result{
+                sink.clear();
+                sink.append(decoder);
+                sink.play();
+                sink.sleep_until_end();
+            }
+        }
+        return;
+    }
+
+
+
+
+    let (_player_cmd_tx, player_cmd_rx) = tokio::sync::mpsc::unbounded_channel::<PlayerCommand>();
+    // let player_cmd_tx_shared = Arc::new(player_cmd_tx.clone());
+
+    let (player_evt_tx, mut _player_evt_rx) = mpsc::unbounded_channel::<PlayerEvent>();
+
+    start_tokio_background_tasks(rodio_player, player_cmd_rx, player_evt_tx);
+
 
 
     let mut quit = false;
